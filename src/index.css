@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@theme {
+  --color-midnight: #0B0F19;
+  --color-panel: #0E1420;
+  --color-elevated: #141B2A;
+  --color-border: #1E293B;
+  --color-border-active: #334155;
+  --color-cyan: #00F0FF;
+  --color-cyan-dim: #0891B2;
+  --color-green: #10B981;
+  --color-amber: #F59E0B;
+  --color-red: #EF4444;
+  --color-muted: #64748B;
+  --color-text: #E2E8F0;
+  --color-text-dim: #94A3B8;
+
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-midnight);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Light mode */
+.light {
+  --color-midnight: #F1F5F9;
+  --color-panel: #FFFFFF;
+  --color-elevated: #F8FAFC;
+  --color-border: #E2E8F0;
+  --color-border-active: #CBD5E1;
+  --color-text: #0F172A;
+  --color-text-dim: #475569;
+  --color-muted: #94A3B8;
+}
+
+.light body {
+  background: var(--color-midnight);
+  color: var(--color-text);
+}
+
+/* Scrollbar — minimal */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-active); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+/* Utility */
+.font-mono { font-family: var(--font-mono); }
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+}
+
+.panel-elevated {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+}
+
+/* Agent overlay (injected) */
+.synerdio-highlight {
+  outline: 1.5px solid #00F0FF !important;
+  outline-offset: 1px !important;
+  background-color: rgba(0, 240, 255, 0.06) !important;
+}
+
+.synerdio-cursor {
+  position: fixed;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #00F0FF;
+  pointer-events: none;
+  z-index: 2147483646;
+  transform: translate(-50%, -50%);
+  transition: left 0.06s linear, top 0.06s linear;
+}
+
+.synerdio-cursor::after {
+  content: attr(data-name);
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0B0F19;
+  color: #00F0FF;
+  font: 10px/1.2 var(--font-mono);
+  padding: 1px 5px;
+  white-space: nowrap;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+}
