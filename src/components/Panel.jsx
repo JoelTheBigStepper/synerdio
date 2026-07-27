@@ -98,8 +98,8 @@ export default function Panel({ roomId, displayName, room }) {
               onClick={() => setTab(t.id)}
               className={`w-full text-left px-3 h-8 text-[12px] font-mono transition ${
                 tab === t.id
-                  ? 'text-[var(--color-cyan)] bg-[var(--color-elevated)] border-r-2 border-[var(--color-cyan)]'
-                  : 'text-[var(--color-text-dim)] hover:text-[var(--color-text)]'
+                  ? 'text-cyan bg-elevated border-r-2 border-cyan'
+                  : 'text-text-dim hover:text-text'
               }`}
             >
               {t.label}
