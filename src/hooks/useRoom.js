@@ -11,6 +11,7 @@ export function useRoom(roomId, displayName, active) {
   const [patches, setPatches] = useState([])
   const [patchRequests, setPatchRequests] = useState([])
   const [connected, setConnected] = useState(false)
+  const [connectionError, setConnectionError] = useState(null)
   const [selfId, setSelfId] = useState(null)
 
   const roomRef = useRef(null)
@@ -26,6 +27,7 @@ export function useRoom(roomId, displayName, active) {
       room = joinRoom({ appId: APP_ID }, roomId)
     } catch (err) {
       console.error('[synerdio] joinRoom failed', err)
+      setConnectionError(err?.message || 'Failed to join room')
       return
     }
 
@@ -57,6 +59,16 @@ export function useRoom(roomId, displayName, active) {
         delete next[peerId]
         return next
       })
+      // Drop this peer's vote from any pending requests so stale approvals
+      // don't count toward the threshold after they've left.
+      setPatchRequests((reqs) =>
+        reqs.map((r) => {
+          if (!r.votes || !(peerId in r.votes)) return r
+          const nextVotes = { ...r.votes }
+          delete nextVotes[peerId]
+          return { ...r, votes: nextVotes }
+        })
+      )
     })
 
     const [sendPresence, getPresence] = room.makeAction('presence')
@@ -82,6 +94,7 @@ export function useRoom(roomId, displayName, active) {
     sendPresence({ name: displayName })
     setSelfId(room.selfId || 'local')
     setConnected(true)
+    setConnectionError(null)
 
     getPresence((data, peerId) => {
       if (cancelled) return
@@ -134,12 +147,14 @@ export function useRoom(roomId, displayName, active) {
       })
     })
 
-    getPatchVote((data) => {
+    // Votes are keyed by peerId (not display name) so two peers sharing a
+    // name can't overwrite each other's vote.
+    getPatchVote((data, peerId) => {
       if (cancelled || !data) return
       setPatchRequests((reqs) =>
         reqs.map((r) =>
           r.id === data.id
-            ? { ...r, votes: { ...r.votes, [data.voter]: data.approve } }
+            ? { ...r, votes: { ...r.votes, [peerId]: { approve: !!data.approve, name: data.voter } } }
             : r
         )
       )
@@ -219,8 +234,23 @@ export function useRoom(roomId, displayName, active) {
         voter: displayName,
         approve,
       })
+      // Trystero doesn't echo your own sends back through the `get`
+      // callback, so record the local vote immediately or it never shows.
+      setPatchRequests((reqs) =>
+        reqs.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                votes: {
+                  ...r.votes,
+                  [selfId || 'self']: { approve: !!approve, name: displayName },
+                },
+              }
+            : r
+        )
+      )
     },
-    [displayName]
+    [displayName, selfId]
   )
 
   const applyPatch = useCallback((patch) => {
@@ -247,10 +277,14 @@ export function useRoom(roomId, displayName, active) {
     roomRef.current?.leave?.()
   }, [])
 
+  const peerCount = Object.keys(peers).length + 1
+
   return {
     connected,
+    connectionError,
     selfId,
     peers,
+    peerCount,
     cursors,
     highlights,
     metrics,
