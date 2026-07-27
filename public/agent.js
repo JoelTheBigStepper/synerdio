@@ -43,10 +43,11 @@
     room.onPeerLeave(function (id) { removeCursor(id); });
     cursor.get(function (data, peerId) { if (data && data.x != null) upsertCursor(peerId, data.x, data.y, data.name); });
     var lastCursor = 0;
-    document.addEventListener("mousemove", function (e) {
+    function onMouseMove(e) {
       var now = performance.now(); if (now - lastCursor < 45) return; lastCursor = now;
       cursor.send({ x: e.clientX, y: e.clientY, name: selfName });
-    }, { passive: true });
+    }
+    document.addEventListener("mousemove", onMouseMove, { passive: true });
 
     function uniqueSelector(el) {
       if (el.id) return "#" + CSS.escape(el.id);
@@ -64,13 +65,14 @@
     function clearHighlights() {
       document.querySelectorAll(".synerdio-highlight").forEach(function (n) { n.classList.remove("synerdio-highlight"); });
     }
-    document.addEventListener("click", function (e) {
+    function onClick(e) {
       if (!(e.metaKey || e.ctrlKey)) return;
       e.preventDefault(); e.stopPropagation();
       var selector = uniqueSelector(e.target);
       clearHighlights(); e.target.classList.add("synerdio-highlight");
       highlight.send({ selector: selector, name: selfName });
-    }, true);
+    }
+    document.addEventListener("click", onClick, true);
     highlight.get(function (data) {
       if (!data || !data.selector) return;
       clearHighlights();
@@ -78,8 +80,9 @@
     });
 
     window.__synerdioLongTasks = window.__synerdioLongTasks || [];
+    var obs;
     try {
-      var obs = new PerformanceObserver(function (list) {
+      obs = new PerformanceObserver(function (list) {
         list.getEntries().forEach(function (e) {
           window.__synerdioLongTasks.push({ duration: Math.round(e.duration), start: Math.round(e.startTime) });
         });
@@ -102,7 +105,7 @@
         longTasks: window.__synerdioLongTasks.slice(-10)
       };
     }
-    setInterval(function () { try { metrics.send(collectMetrics()); } catch (_) {} }, 3500);
+    var metricsInterval = setInterval(function () { try { metrics.send(collectMetrics()); } catch (_) {} }, 3500);
     setTimeout(function () { try { metrics.send(collectMetrics()); } catch (_) {} }, 800);
 
     var applied = new Map();
@@ -125,6 +128,10 @@
     patchRevert.get(function (data) { if (data && data.id) window.__synerdioRevertPatch(data.id); });
     window.__synerdioLeave = function () {
       try { room.leave(); } catch (_) {}
+      try { if (obs) obs.disconnect(); } catch (_) {}
+      clearInterval(metricsInterval);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("click", onClick, true);
       cursorEls.forEach(function (el) { el.remove(); });
       cursorEls.clear(); badge.remove(); style.remove();
       window.__synerdioAgent = false;
