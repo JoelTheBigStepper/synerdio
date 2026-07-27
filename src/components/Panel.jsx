@@ -89,6 +89,12 @@ export default function Panel({ roomId, displayName, room }) {
         />
       </div>
 
+      {room.connectionError && (
+        <div className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-[var(--color-amber)] bg-[var(--color-amber)]/10 border-b border-[var(--color-amber)]/30">
+          Connection error: {room.connectionError}
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 flex">
         <nav className="w-28 shrink-0 border-r border-[var(--color-border)] py-2">
           {TABS.map((t) => (
@@ -126,6 +132,7 @@ export default function Panel({ roomId, displayName, room }) {
               onApply={room.applyPatch}
               onRevert={room.revertPatch}
               selfName={displayName}
+              peerCount={peerCount}
             />
           )}
           {tab === 'ai' && <AIChat metrics={metrics} />}

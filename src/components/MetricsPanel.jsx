@@ -1,5 +1,14 @@
 import { Activity, Clock, HardDrive, AlertTriangle } from 'lucide-react'
 
+function safeHostname(url) {
+  if (!url) return '—'
+  try {
+    return new URL(url).hostname
+  } catch {
+    return '—'
+  }
+}
+
 export default function MetricsPanel({ metrics }) {
   if (!metrics) {
     return (
@@ -19,7 +28,7 @@ export default function MetricsPanel({ metrics }) {
           Live Metrics
         </h3>
         <span className="text-xs text-slate font-mono">
-          {url ? new URL(url).hostname : '—'} · {ts ? new Date(ts).toLocaleTimeString() : ''}
+          {safeHostname(url)} · {ts ? new Date(ts).toLocaleTimeString() : ''}
         </span>
       </div>
 
