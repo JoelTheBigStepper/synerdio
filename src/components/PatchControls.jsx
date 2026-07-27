@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Wand2, Check, X, RotateCcw, Plus } from 'lucide-react'
+import { Wand2, Check, X, RotateCcw, Plus, ShieldCheck } from 'lucide-react'
 
 export default function PatchControls({
   patches = [],
@@ -9,11 +9,23 @@ export default function PatchControls({
   onApply,
   onRevert,
   selfName,
+  peerCount = 1,
 }) {
   const [css, setCss] = useState('')
   const [js, setJs] = useState('')
   const [desc, setDesc] = useState('')
   const [showForm, setShowForm] = useState(false)
+
+  // Require a majority of everyone currently in the room before a patch
+  // (which can include arbitrary JS via `new Function`) is allowed to apply.
+  const requiredApprovals = Math.max(1, Math.ceil(peerCount / 2))
+
+  const tally = (r) => {
+    const votes = Object.values(r.votes || {})
+    const approve = votes.filter((v) => v.approve).length
+    const reject = votes.filter((v) => !v.approve).length
+    return { approve, reject }
+  }
 
   const handlePropose = (e) => {
     e.preventDefault()
@@ -47,8 +59,9 @@ export default function PatchControls({
       </div>
 
       <p className="text-sm text-slate">
-        Propose a temporary CSS or JS change. Peers can vote. Once approved it is applied
-        for everyone in the room (and can be reverted).
+        Propose a temporary CSS or JS change. A majority of the room ({requiredApprovals}
+        {' '}of {peerCount}) must approve before it can be applied for everyone (and can be
+        reverted).
       </p>
 
       {showForm && (
@@ -95,46 +108,70 @@ export default function PatchControls({
       {requests.length > 0 && (
         <div className="space-y-3">
           <h4 className="text-sm font-medium text-amber">Pending Approvals</h4>
-          {requests.map((r) => (
-            <div
-              key={r.id}
-              className="p-4 rounded-xl bg-amber/5 border border-amber/20 space-y-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium text-sm">{r.description}</div>
-                  <div className="text-xs text-slate">by {r.requester || r.from}</div>
+          {requests.map((r) => {
+            const { approve, reject } = tally(r)
+            const canApply = approve >= requiredApprovals
+            return (
+              <div
+                key={r.id}
+                className="p-4 rounded-xl bg-amber/5 border border-amber/20 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-medium text-sm">{r.description}</div>
+                    <div className="text-xs text-slate">by {r.requester || r.from}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onVote(r.id, true)}
+                      className="p-1.5 rounded bg-green/20 text-green hover:bg-green/30"
+                      title="Approve"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onVote(r.id, false)}
+                      className="p-1.5 rounded bg-red/20 text-red hover:bg-red/30"
+                      title="Reject"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => canApply && onApply(r)}
+                      disabled={!canApply}
+                      title={
+                        canApply
+                          ? 'Apply now'
+                          : `Needs ${requiredApprovals - approve} more approval${
+                              requiredApprovals - approve === 1 ? '' : 's'
+                            }`
+                      }
+                      className={`px-2 py-1 rounded text-xs transition ${
+                        canApply
+                          ? 'bg-cyan/20 text-cyan hover:bg-cyan/30'
+                          : 'bg-midnight-lighter text-slate cursor-not-allowed opacity-60'
+                      }`}
+                    >
+                      Apply now
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => onVote(r.id, true)}
-                    className="p-1.5 rounded bg-green/20 text-green hover:bg-green/30"
-                    title="Approve"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onVote(r.id, false)}
-                    className="p-1.5 rounded bg-red/20 text-red hover:bg-red/30"
-                    title="Reject"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onApply(r)}
-                    className="px-2 py-1 rounded text-xs bg-cyan/20 text-cyan hover:bg-cyan/30"
-                  >
-                    Apply now
-                  </button>
+                <div className="flex items-center gap-1.5 text-xs text-slate">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="text-green">{approve} approve</span>
+                  <span>·</span>
+                  <span className="text-red">{reject} reject</span>
+                  <span>·</span>
+                  <span>{requiredApprovals} needed</span>
                 </div>
+                {r.css && (
+                  <pre className="text-xs font-mono bg-midnight p-2 rounded overflow-auto max-h-20 text-green">
+                    {r.css}
+                  </pre>
+                )}
               </div>
-              {r.css && (
-                <pre className="text-xs font-mono bg-midnight p-2 rounded overflow-auto max-h-20 text-green">
-                  {r.css}
-                </pre>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
