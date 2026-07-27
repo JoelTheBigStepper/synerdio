@@ -43,33 +43,13 @@ export default function Panel({ roomId, displayName, room }) {
               total: Math.round(performance.memory.totalJSHeapSize / 1048576),
             }
           : null,
-        longTasks: window.__synerdioLongTasks || [],
+        longTasks: [],
       }
       setLocalMetrics(data)
-      room.broadcastMetrics?.(data)
     }
-
     collect()
-    const id = setInterval(collect, 4000)
+    const id = setInterval(collect, 5000)
     return () => clearInterval(id)
-  }, [room])
-
-  useEffect(() => {
-    if (!window.PerformanceObserver) return
-    try {
-      const obs = new PerformanceObserver((list) => {
-        if (!window.__synerdioLongTasks) window.__synerdioLongTasks = []
-        list.getEntries().forEach((e) => {
-          window.__synerdioLongTasks.push({
-            duration: Math.round(e.duration),
-            start: Math.round(e.startTime),
-          })
-        })
-        window.__synerdioLongTasks = window.__synerdioLongTasks.slice(-15)
-      })
-      obs.observe({ type: 'longtask', buffered: true })
-      return () => obs.disconnect()
-    } catch (_) {}
   }, [])
 
   const metrics = room.metrics || localMetrics
@@ -77,7 +57,6 @@ export default function Panel({ roomId, displayName, room }) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Status strip */}
       <div className="h-8 shrink-0 border-b border-[var(--color-border)] px-3 flex items-center gap-4 text-[11px] font-mono">
         <span className="flex items-center gap-1.5">
           <span
@@ -87,20 +66,35 @@ export default function Panel({ roomId, displayName, room }) {
           />
           {room.connected ? 'connected' : 'connecting'}
         </span>
-        <span className="text-[var(--color-muted)]">{peerCount} peer{peerCount !== 1 ? 's' : ''}</span>
-        <span className="text-[var(--color-muted)] truncate max-w-[200px]">
-          {metrics?.url ? new URL(metrics.url).hostname : '—'}
+        <span className="text-[var(--color-muted)]">
+          {peerCount} peer{peerCount !== 1 ? 's' : ''}
+        </span>
+        <span className="text-[var(--color-muted)] truncate max-w-[220px]">
+          {metrics?.url
+            ? (() => {
+                try {
+                  return new URL(metrics.url).hostname
+                } catch {
+                  return '—'
+                }
+              })()
+            : '—'}
         </span>
         <div className="flex-1" />
-        <ExportButton metrics={metrics} roomId={roomId} peers={room.peers} patches={room.patches} />
+        <ExportButton
+          metrics={metrics}
+          roomId={roomId}
+          peers={room.peers}
+          patches={room.patches}
+        />
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {/* Side nav */}
         <nav className="w-28 shrink-0 border-r border-[var(--color-border)] py-2">
           {TABS.map((t) => (
             <button
               key={t.id}
+              type="button"
               onClick={() => setTab(t.id)}
               className={`w-full text-left px-3 h-8 text-[12px] font-mono transition ${
                 tab === t.id
@@ -113,7 +107,6 @@ export default function Panel({ roomId, displayName, room }) {
           ))}
         </nav>
 
-        {/* Content */}
         <div className="flex-1 min-w-0 overflow-auto p-4">
           {tab === 'metrics' && <MetricsPanel metrics={metrics} />}
           {tab === 'peers' && (
@@ -139,9 +132,8 @@ export default function Panel({ roomId, displayName, room }) {
         </div>
       </div>
 
-      {/* Footer hint */}
       <div className="h-7 shrink-0 border-t border-[var(--color-border)] px-3 flex items-center text-[11px] font-mono text-[var(--color-muted)]">
-        inject agent on target page · ctrl/cmd-click to highlight · room {roomId}
+        agent must be injected on the target page · ctrl/cmd-click to highlight · room {roomId}
       </div>
 
       <CursorOverlay cursors={room.cursors} />

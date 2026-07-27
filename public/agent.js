@@ -1,264 +1,142 @@
 /**
- * Synerdio Agent — injected into any target page.
- * Collects metrics, shows remote cursors/highlighters, applies shared patches.
- * Built as IIFE via esbuild for bookmarklet / script tag use.
+ * Synerdio Agent — Trystero peer via CDN
  */
 (function () {
-  if (window.__synerdioAgent) {
-    console.warn('[Synerdio] Agent already injected')
-    return
-  }
-  window.__synerdioAgent = true
+  if (window.__synerdioAgent) { console.warn("[synerdio] already running"); return; }
+  window.__synerdioAgent = true;
+  var scriptEl = document.currentScript;
+  var ROOM = (scriptEl && scriptEl.dataset && scriptEl.dataset.room) ||
+    new URLSearchParams(location.search).get("synerdio") ||
+    (typeof prompt === "function" ? prompt("Synerdio room ID") : "") || "";
+  if (!ROOM) { console.warn("[synerdio] no room id"); window.__synerdioAgent = false; return; }
+  var selfName = localStorage.getItem("synerdio-name") || ("dev-" + Math.floor(Math.random() * 9000 + 1000));
+  var ORIGIN = scriptEl && scriptEl.src ? new URL(scriptEl.src).origin : location.origin;
+  var APP_ID = "synerdio-v1";
+  console.log("%c[synerdio] loading trystero room=" + ROOM, "color:#00F0FF;font-weight:bold");
 
-  const ROOM =
-    document.currentScript?.dataset?.room ||
-    new URLSearchParams(location.search).get('synerdio') ||
-    prompt('Synerdio Room ID') ||
-    ''
+  var style = document.createElement("style");
+  style.textContent = ".synerdio-highlight{outline:1.5px solid #00F0FF!important;outline-offset:1px!important;background-color:rgba(0,240,255,.07)!important}.synerdio-cursor{position:fixed;width:14px;height:14px;border-radius:50%;border:1.5px solid #00F0FF;pointer-events:none;z-index:2147483646;transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}.synerdio-cursor::after{content:attr(data-name);position:absolute;top:16px;left:50%;transform:translateX(-50%);background:#0B0F19;color:#00F0FF;font:10px/1.2 ui-monospace,monospace;padding:1px 5px;white-space:nowrap;border:1px solid rgba(0,240,255,.35)}#synerdio-badge{position:fixed;bottom:12px;right:12px;z-index:2147483647;background:#0B0F19;color:#E2E8F0;border:1px solid #1E293B;font:11px/1.3 ui-monospace,monospace;padding:6px 10px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.45)}#synerdio-badge .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B}#synerdio-badge .dot.on{background:#10B981;box-shadow:0 0 6px #10B981}#synerdio-badge a{color:#00F0FF;text-decoration:none}";
+  document.documentElement.appendChild(style);
+  var badge = document.createElement("div");
+  badge.id = "synerdio-badge";
+  badge.innerHTML = '<span class="dot" id="synerdio-dot"></span><span>synerdio · ' + ROOM + '</span><a href="' + ORIGIN + '/?room=' + ROOM + '" target="_blank" rel="noopener">panel</a>';
+  document.documentElement.appendChild(badge);
+  var dot = badge.querySelector("#synerdio-dot");
 
-  if (!ROOM) {
-    console.warn('[Synerdio] No room ID provided')
-    return
-  }
+  function start(joinRoom) {
+    var room;
+    try { room = joinRoom({ appId: APP_ID }, ROOM); } catch (err) { console.error("[synerdio] join failed", err); return; }
+    function act(n) { var p = room.makeAction(n); return { send: p[0], get: p[1] }; }
+    var presence = act("presence"), cursor = act("cursor"), highlight = act("highlight");
+    var metrics = act("metrics"), patchApply = act("patchApply"), patchRevert = act("patchRevert");
+    presence.send({ name: selfName });
+    dot.classList.add("on");
+    console.log("%c[synerdio] connected as peer", "color:#10B981");
+    room.onPeerJoin(function (id) { console.log("[synerdio] peer joined", id); presence.send({ name: selfName }); });
+    var cursorEls = new Map();
+    function upsertCursor(peerId, x, y, name) {
+      var el = cursorEls.get(peerId);
+      if (!el) { el = document.createElement("div"); el.className = "synerdio-cursor"; document.documentElement.appendChild(el); cursorEls.set(peerId, el); }
+      el.style.left = x + "px"; el.style.top = y + "px"; el.dataset.name = name || "peer";
+    }
+    function removeCursor(peerId) { var el = cursorEls.get(peerId); if (el) { el.remove(); cursorEls.delete(peerId); } }
+    room.onPeerLeave(function (id) { removeCursor(id); });
+    cursor.get(function (data, peerId) { if (data && data.x != null) upsertCursor(peerId, data.x, data.y, data.name); });
+    var lastCursor = 0;
+    document.addEventListener("mousemove", function (e) {
+      var now = performance.now(); if (now - lastCursor < 45) return; lastCursor = now;
+      cursor.send({ x: e.clientX, y: e.clientY, name: selfName });
+    }, { passive: true });
 
-  console.log('%c[Synerdio] Agent starting — room', 'color:#00F0FF;font-weight:bold', ROOM)
-
-  // ---------- Minimal Trystero-like signaling via BroadcastChannel fallback + WebRTC attempt ----------
-  // For maximum reliability in bookmarklet context we use a lightweight custom layer
-  // that still works when the full Trystero bundle is loaded from the host origin.
-
-  const ORIGIN = document.currentScript?.src
-    ? new URL(document.currentScript.src).origin
-    : 'https://synerdio.vercel.app'
-
-  // Load the full agent runtime from the hosted app (keeps bookmarklet tiny)
-  // In production the public/agent.js is the bundled version of this file + trystero.
-  // For this MVP we implement core features inline so it works standalone.
-
-  const peers = new Map()
-  const cursors = new Map()
-  let selfName = localStorage.getItem('synerdio-name') || `Guest-${Math.floor(Math.random() * 999)}`
-
-  // ---------- Cursor broadcasting ----------
-  let lastCursorSend = 0
-  document.addEventListener('mousemove', (e) => {
-    const now = performance.now()
-    if (now - lastCursorSend < 40) return
-    lastCursorSend = now
-    broadcast({ type: 'cursor', x: e.clientX, y: e.clientY, name: selfName })
-  })
-
-  // ---------- Element highlight on click (Ctrl/Cmd + click) ----------
-  document.addEventListener(
-    'click',
-    (e) => {
-      if (!(e.metaKey || e.ctrlKey)) return
-      e.preventDefault()
-      e.stopPropagation()
-      const el = e.target
-      const selector = uniqueSelector(el)
-      clearLocalHighlight()
-      el.classList.add('synerdio-highlight')
-      broadcast({ type: 'highlight', selector, name: selfName })
-    },
-    true
-  )
-
-  function uniqueSelector(el) {
-    if (el.id) return `#${CSS.escape(el.id)}`
-    const parts = []
-    let cur = el
-    while (cur && cur !== document.body && parts.length < 5) {
-      let part = cur.tagName.toLowerCase()
-      if (cur.className && typeof cur.className === 'string') {
-        const cls = cur.className.trim().split(/\s+/).slice(0, 2).map(CSS.escape).join('.')
-        if (cls) part += '.' + cls
+    function uniqueSelector(el) {
+      if (el.id) return "#" + CSS.escape(el.id);
+      var parts = [], cur = el;
+      while (cur && cur.nodeType === 1 && parts.length < 5) {
+        var part = cur.tagName.toLowerCase();
+        if (cur.classList && cur.classList.length) {
+          var cls = Array.prototype.slice.call(cur.classList, 0, 2).map(function (c) { return CSS.escape(c); }).join(".");
+          if (cls) part += "." + cls;
+        }
+        parts.unshift(part); cur = cur.parentElement;
       }
-      parts.unshift(part)
-      cur = cur.parentElement
+      return parts.join(" > ");
     }
-    return parts.join(' > ')
-  }
-
-  function clearLocalHighlight() {
-    document.querySelectorAll('.synerdio-highlight').forEach((n) => n.classList.remove('synerdio-highlight'))
-  }
-
-  // ---------- Metrics ----------
-  function collectMetrics() {
-    const nav = performance.getEntriesByType('navigation')[0]
-    const resources = performance.getEntriesByType('resource').slice(-25)
-    return {
-      type: 'metrics',
-      ts: Date.now(),
-      url: location.href,
-      timing: nav
-        ? {
-            ttfb: Math.round(nav.responseStart - nav.requestStart),
-            domContentLoaded: Math.round(nav.domContentLoadedEventEnd - nav.startTime),
-            load: Math.round(nav.loadEventEnd - nav.startTime),
-          }
-        : null,
-      resources: resources.map((r) => ({
-        name: (r.name.split('/').pop() || r.name).slice(0, 48),
-        duration: Math.round(r.duration),
-        size: r.transferSize || 0,
-        type: r.initiatorType,
-      })),
-      memory: performance.memory
-        ? {
-            used: Math.round(performance.memory.usedJSHeapSize / 1048576),
-            total: Math.round(performance.memory.totalJSHeapSize / 1048576),
-          }
-        : null,
-      longTasks: window.__synerdioLongTasks || [],
+    function clearHighlights() {
+      document.querySelectorAll(".synerdio-highlight").forEach(function (n) { n.classList.remove("synerdio-highlight"); });
     }
-  }
+    document.addEventListener("click", function (e) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault(); e.stopPropagation();
+      var selector = uniqueSelector(e.target);
+      clearHighlights(); e.target.classList.add("synerdio-highlight");
+      highlight.send({ selector: selector, name: selfName });
+    }, true);
+    highlight.get(function (data) {
+      if (!data || !data.selector) return;
+      clearHighlights();
+      try { var t = document.querySelector(data.selector); if (t) t.classList.add("synerdio-highlight"); } catch (_) {}
+    });
 
-  // Long task observer
-  try {
-    const obs = new PerformanceObserver((list) => {
-      if (!window.__synerdioLongTasks) window.__synerdioLongTasks = []
-      list.getEntries().forEach((e) => {
-        window.__synerdioLongTasks.push({
-          duration: Math.round(e.duration),
-          start: Math.round(e.startTime),
-        })
-      })
-      window.__synerdioLongTasks = window.__synerdioLongTasks.slice(-20)
-    })
-    obs.observe({ type: 'longtask', buffered: true })
-  } catch (_) {}
-
-  setInterval(() => {
-    broadcast(collectMetrics())
-  }, 3500)
-
-  // ---------- Patches ----------
-  const appliedStyles = new Map()
-
-  window.__synerdioApplyPatch = function (patch) {
-    if (patch.css) {
-      const style = document.createElement('style')
-      style.dataset.synerdioPatch = patch.id
-      style.textContent = patch.css
-      document.head.appendChild(style)
-      appliedStyles.set(patch.id, style)
-    }
-    if (patch.js) {
-      try {
-        // eslint-disable-next-line no-new-func
-        const fn = new Function(patch.js)
-        fn()
-      } catch (err) {
-        console.error('[Synerdio] Patch JS error', err)
-      }
-    }
-    console.log('%c[Synerdio] Patch applied', 'color:#10B981', patch.description)
-  }
-
-  window.__synerdioRevertPatch = function (id) {
-    const style = appliedStyles.get(id)
-    if (style) {
-      style.remove()
-      appliedStyles.delete(id)
-    }
-  }
-
-  // ---------- Simple multi-tab / multi-peer transport via BroadcastChannel + optional WebRTC ----------
-  // BroadcastChannel works across tabs on same origin; for cross-origin we rely on the host app
-  // when users open the room page. For true cross-site we inject a small bridge.
-
-  const channel = new BroadcastChannel(`synerdio-${ROOM}`)
-
-  function broadcast(msg) {
+    window.__synerdioLongTasks = window.__synerdioLongTasks || [];
     try {
-      channel.postMessage({ ...msg, from: selfName, t: Date.now() })
+      var obs = new PerformanceObserver(function (list) {
+        list.getEntries().forEach(function (e) {
+          window.__synerdioLongTasks.push({ duration: Math.round(e.duration), start: Math.round(e.startTime) });
+        });
+        window.__synerdioLongTasks = window.__synerdioLongTasks.slice(-20);
+      });
+      obs.observe({ type: "longtask", buffered: true });
     } catch (_) {}
-  }
+    function collectMetrics() {
+      var nav = performance.getEntriesByType("navigation")[0];
+      var resources = performance.getEntriesByType("resource").slice(-20);
+      return {
+        ts: Date.now(), url: location.href,
+        timing: nav ? { ttfb: Math.round(nav.responseStart - nav.requestStart),
+          domContentLoaded: Math.round(nav.domContentLoadedEventEnd - nav.startTime),
+          load: Math.round(nav.loadEventEnd - nav.startTime) } : null,
+        resources: resources.map(function (r) {
+          return { name: (r.name.split("/").pop() || r.name).slice(0, 48), duration: Math.round(r.duration), size: r.transferSize || 0, type: r.initiatorType };
+        }),
+        memory: performance.memory ? { used: Math.round(performance.memory.usedJSHeapSize / 1048576), total: Math.round(performance.memory.totalJSHeapSize / 1048576) } : null,
+        longTasks: window.__synerdioLongTasks.slice(-10)
+      };
+    }
+    setInterval(function () { try { metrics.send(collectMetrics()); } catch (_) {} }, 3500);
+    setTimeout(function () { try { metrics.send(collectMetrics()); } catch (_) {} }, 800);
 
-  channel.onmessage = (ev) => {
-    const msg = ev.data
-    if (!msg || msg.from === selfName) return
-
-    if (msg.type === 'cursor') {
-      let el = cursors.get(msg.from)
-      if (!el) {
-        el = document.createElement('div')
-        el.className = 'synerdio-cursor'
-        el.dataset.name = msg.name || msg.from
-        document.documentElement.appendChild(el)
-        cursors.set(msg.from, el)
+    var applied = new Map();
+    window.__synerdioApplyPatch = function (patch) {
+      if (!patch || !patch.id) return;
+      if (patch.css) {
+        var el = document.createElement("style");
+        el.dataset.synerdioPatch = patch.id;
+        el.textContent = patch.css;
+        document.head.appendChild(el);
+        applied.set(patch.id, el);
       }
-      el.style.left = msg.x + 'px'
-      el.style.top = msg.y + 'px'
-    }
-
-    if (msg.type === 'highlight' && msg.selector) {
-      clearLocalHighlight()
-      try {
-        const target = document.querySelector(msg.selector)
-        if (target) target.classList.add('synerdio-highlight')
-      } catch (_) {}
-    }
-
-    if (msg.type === 'metrics') {
-      // Store for potential panel consumption
-      window.__synerdioLastMetrics = msg
-    }
+      if (patch.js) { try { Function(patch.js)(); } catch (err) { console.error("[synerdio] patch js", err); } }
+      console.log("%c[synerdio] patch applied", "color:#10B981", patch.description || patch.id);
+    };
+    window.__synerdioRevertPatch = function (id) {
+      var el = applied.get(id); if (el) { el.remove(); applied.delete(id); }
+    };
+    patchApply.get(function (data) { window.__synerdioApplyPatch(data); });
+    patchRevert.get(function (data) { if (data && data.id) window.__synerdioRevertPatch(data.id); });
+    window.__synerdioLeave = function () {
+      try { room.leave(); } catch (_) {}
+      cursorEls.forEach(function (el) { el.remove(); });
+      cursorEls.clear(); badge.remove(); style.remove();
+      window.__synerdioAgent = false;
+      console.log("[synerdio] left");
+    };
   }
-
-  // Inject minimal CSS for highlighters & cursors
-  const css = document.createElement('style')
-  css.textContent = `
-    .synerdio-highlight {
-      outline: 2px solid #00F0FF !important;
-      outline-offset: 2px !important;
-      background-color: rgba(0, 240, 255, 0.08) !important;
-    }
-    .synerdio-cursor {
-      position: fixed;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 2px solid #00F0FF;
-      pointer-events: none;
-      z-index: 2147483646;
-      transform: translate(-50%, -50%);
-      transition: left 0.07s linear, top 0.07s linear;
-    }
-    .synerdio-cursor::after {
-      content: attr(data-name);
-      position: absolute;
-      top: 18px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #0B0F19;
-      color: #00F0FF;
-      font: 10px/1.2 system-ui, sans-serif;
-      padding: 2px 5px;
-      border-radius: 3px;
-      white-space: nowrap;
-      border: 1px solid rgba(0,240,255,0.35);
-    }
-  `
-  document.head.appendChild(css)
-
-  // Floating badge so user knows agent is live
-  const badge = document.createElement('div')
-  badge.innerHTML = `
-    <div style="
-      position:fixed;bottom:16px;right:16px;z-index:2147483647;
-      background:#0B0F19;color:#00F0FF;border:1px solid rgba(0,240,255,0.4);
-      padding:8px 12px;border-radius:8px;font:12px/1.3 system-ui,sans-serif;
-      box-shadow:0 4px 20px rgba(0,0,0,0.4);display:flex;align-items:center;gap:8px;
-    ">
-      <span style="width:8px;height:8px;border-radius:50%;background:#10B981;box-shadow:0 0 8px #10B981;"></span>
-      Synerdio · ${ROOM}
-      <a href="${ORIGIN}/?room=${ROOM}" target="_blank" style="color:#00F0FF;margin-left:4px;">Open panel</a>
-    </div>
-  `
-  document.documentElement.appendChild(badge)
-
-  console.log('%c[Synerdio] Agent ready. Ctrl/Cmd+Click to highlight. Cursors are shared.', 'color:#10B981')
-})()
+  var s = document.createElement("script");
+  s.type = "module";
+  s.textContent = 'import { joinRoom } from "https://esm.sh/trystero@0.22.0"; window.__synerdioJoinRoom = joinRoom; window.dispatchEvent(new Event("synerdio-trystero-ready"));';
+  document.documentElement.appendChild(s);
+  window.addEventListener("synerdio-trystero-ready", function () {
+    if (window.__synerdioJoinRoom) start(window.__synerdioJoinRoom);
+    else console.error("[synerdio] trystero CDN failed");
+  }, { once: true });
+})();

@@ -32,7 +32,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Light mode */
 .light {
   --color-midnight: #F1F5F9;
   --color-panel: #FFFFFF;
@@ -49,26 +48,13 @@ body {
   color: var(--color-text);
 }
 
-/* Scrollbar — minimal */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border-active); }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
 
-/* Utility */
 .font-mono { font-family: var(--font-mono); }
 
-.panel {
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-}
-
-.panel-elevated {
-  background: var(--color-elevated);
-  border: 1px solid var(--color-border);
-}
-
-/* Agent overlay (injected) */
 .synerdio-highlight {
   outline: 1.5px solid #00F0FF !important;
   outline-offset: 1px !important;

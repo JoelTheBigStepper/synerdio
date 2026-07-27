@@ -55,7 +55,6 @@ export default function App() {
 
   return (
     <div className={`min-h-full flex flex-col ${theme}`}>
-      {/* Compact top bar — no marketing chrome */}
       <header className="h-10 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-3 gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-[13px] font-semibold tracking-tight text-[var(--color-cyan)]">
@@ -70,9 +69,7 @@ export default function App() {
             </>
           )}
         </div>
-
         <div className="flex-1" />
-
         <div className="flex items-center gap-1.5">
           {mode === 'room' && (
             <button
@@ -91,7 +88,6 @@ export default function App() {
           </button>
         </div>
       </header>
-
       <main className="flex-1 min-h-0">
         {mode === 'landing' ? (
           <Landing

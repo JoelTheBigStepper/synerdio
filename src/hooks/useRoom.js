@@ -3,10 +3,6 @@ import { joinRoom } from 'trystero'
 
 const APP_ID = 'synerdio-v1'
 
-/**
- * Core collaboration hook using Trystero (serverless WebRTC).
- * Handles presence, cursors, highlighters, metrics sync, and permission-based patches.
- */
 export function useRoom(roomId, displayName, active) {
   const [peers, setPeers] = useState({})
   const [cursors, setCursors] = useState({})
@@ -24,17 +20,24 @@ export function useRoom(roomId, displayName, active) {
     if (!active || !roomId) return
 
     let cancelled = false
+    let room
 
-    const room = joinRoom({ appId: APP_ID }, roomId)
+    try {
+      room = joinRoom({ appId: APP_ID }, roomId)
+    } catch (err) {
+      console.error('[synerdio] joinRoom failed', err)
+      return
+    }
+
     roomRef.current = room
 
-    // Presence
     room.onPeerJoin((peerId) => {
       if (cancelled) return
       setPeers((p) => ({
         ...p,
-        [peerId]: { id: peerId, name: 'Peer', joinedAt: Date.now() },
+        [peerId]: { id: peerId, name: p[peerId]?.name || 'peer', joinedAt: Date.now() },
       }))
+      actionsRef.current.sendPresence?.({ name: displayName })
     })
 
     room.onPeerLeave((peerId) => {
@@ -56,7 +59,6 @@ export function useRoom(roomId, displayName, active) {
       })
     })
 
-    // Typed actions
     const [sendPresence, getPresence] = room.makeAction('presence')
     const [sendCursor, getCursor] = room.makeAction('cursor')
     const [sendHighlight, getHighlight] = room.makeAction('highlight')
@@ -77,19 +79,24 @@ export function useRoom(roomId, displayName, active) {
       sendPatchRevert,
     }
 
-    // Announce self
     sendPresence({ name: displayName })
     setSelfId(room.selfId || 'local')
     setConnected(true)
 
     getPresence((data, peerId) => {
+      if (cancelled) return
       setPeers((p) => ({
         ...p,
-        [peerId]: { id: peerId, name: data.name || 'Peer', joinedAt: Date.now() },
+        [peerId]: {
+          id: peerId,
+          name: data?.name || 'peer',
+          joinedAt: p[peerId]?.joinedAt || Date.now(),
+        },
       }))
     })
 
     getCursor((data, peerId) => {
+      if (cancelled || !data) return
       setCursors((c) => ({
         ...c,
         [peerId]: { x: data.x, y: data.y, name: data.name },
@@ -97,26 +104,38 @@ export function useRoom(roomId, displayName, active) {
     })
 
     getHighlight((data, peerId) => {
+      if (cancelled) return
       setHighlights((h) => ({
         ...h,
-        [peerId]: data.selector
+        [peerId]: data?.selector
           ? { selector: data.selector, name: data.name }
           : null,
       }))
     })
 
     getMetrics((data) => {
+      if (cancelled || !data) return
       setMetrics(data)
     })
 
     getPatchReq((data, peerId) => {
-      setPatchRequests((reqs) => [
-        ...reqs,
-        { ...data, from: peerId, votes: {}, id: data.id || crypto.randomUUID() },
-      ])
+      if (cancelled || !data) return
+      setPatchRequests((reqs) => {
+        if (reqs.some((r) => r.id === data.id)) return reqs
+        return [
+          ...reqs,
+          {
+            ...data,
+            from: peerId,
+            votes: {},
+            id: data.id || crypto.randomUUID(),
+          },
+        ]
+      })
     })
 
     getPatchVote((data) => {
+      if (cancelled || !data) return
       setPatchRequests((reqs) =>
         reqs.map((r) =>
           r.id === data.id
@@ -127,16 +146,21 @@ export function useRoom(roomId, displayName, active) {
     })
 
     getPatchApply((data) => {
-      setPatches((p) => [...p, data])
-      // Apply in this browser if we are on a target page with agent
-      if (window.__synerdioApplyPatch) {
+      if (cancelled || !data) return
+      setPatches((p) => {
+        if (p.some((x) => x.id === data.id)) return p
+        return [...p, data]
+      })
+      setPatchRequests((r) => r.filter((x) => x.id !== data.id))
+      if (typeof window !== 'undefined' && window.__synerdioApplyPatch) {
         window.__synerdioApplyPatch(data)
       }
     })
 
     getPatchRevert((data) => {
+      if (cancelled || !data?.id) return
       setPatches((p) => p.filter((x) => x.id !== data.id))
-      if (window.__synerdioRevertPatch) {
+      if (typeof window !== 'undefined' && window.__synerdioRevertPatch) {
         window.__synerdioRevertPatch(data.id)
       }
     })
@@ -154,39 +178,69 @@ export function useRoom(roomId, displayName, active) {
     }
   }, [active, roomId, displayName])
 
-  const broadcastCursor = useCallback((x, y) => {
-    actionsRef.current.sendCursor?.({ x, y, name: displayName })
-  }, [displayName])
+  const broadcastCursor = useCallback(
+    (x, y) => {
+      actionsRef.current.sendCursor?.({ x, y, name: displayName })
+    },
+    [displayName]
+  )
 
-  const broadcastHighlight = useCallback((selector) => {
-    actionsRef.current.sendHighlight?.({ selector, name: displayName })
-  }, [displayName])
+  const broadcastHighlight = useCallback(
+    (selector) => {
+      actionsRef.current.sendHighlight?.({ selector, name: displayName })
+    },
+    [displayName]
+  )
 
   const broadcastMetrics = useCallback((data) => {
     actionsRef.current.sendMetrics?.(data)
   }, [])
 
-  const requestPatch = useCallback((patch) => {
-    const id = crypto.randomUUID()
-    const payload = { ...patch, id, requester: displayName, ts: Date.now() }
-    actionsRef.current.sendPatchReq?.(payload)
-    setPatchRequests((r) => [...r, { ...payload, from: 'self', votes: {} }])
-    return id
-  }, [displayName])
+  const requestPatch = useCallback(
+    (patch) => {
+      const id = crypto.randomUUID()
+      const payload = {
+        ...patch,
+        id,
+        requester: displayName,
+        ts: Date.now(),
+      }
+      actionsRef.current.sendPatchReq?.(payload)
+      setPatchRequests((r) => [...r, { ...payload, from: 'self', votes: {} }])
+      return id
+    },
+    [displayName]
+  )
 
-  const votePatch = useCallback((id, approve) => {
-    actionsRef.current.sendPatchVote?.({ id, voter: displayName, approve })
-  }, [displayName])
+  const votePatch = useCallback(
+    (id, approve) => {
+      actionsRef.current.sendPatchVote?.({
+        id,
+        voter: displayName,
+        approve,
+      })
+    },
+    [displayName]
+  )
 
   const applyPatch = useCallback((patch) => {
     actionsRef.current.sendPatchApply?.(patch)
-    setPatches((p) => [...p, patch])
+    setPatches((p) => {
+      if (p.some((x) => x.id === patch.id)) return p
+      return [...p, patch]
+    })
     setPatchRequests((r) => r.filter((x) => x.id !== patch.id))
+    if (typeof window !== 'undefined' && window.__synerdioApplyPatch) {
+      window.__synerdioApplyPatch(patch)
+    }
   }, [])
 
   const revertPatch = useCallback((id) => {
     actionsRef.current.sendPatchRevert?.({ id })
     setPatches((p) => p.filter((x) => x.id !== id))
+    if (typeof window !== 'undefined' && window.__synerdioRevertPatch) {
+      window.__synerdioRevertPatch(id)
+    }
   }, [])
 
   const leave = useCallback(() => {
