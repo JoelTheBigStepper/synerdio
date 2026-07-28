@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Wand2, Check, X, RotateCcw, Plus, ShieldCheck } from 'lucide-react'
+import { Wand2, Check, X, RotateCcw, Plus, ShieldCheck, AlertOctagon } from 'lucide-react'
 
 export default function PatchControls({
   patches = [],
@@ -15,6 +15,8 @@ export default function PatchControls({
   const [js, setJs] = useState('')
   const [desc, setDesc] = useState('')
   const [showForm, setShowForm] = useState(false)
+  // Two-step confirmation before running a JS patch on every peer's page.
+  const [confirmId, setConfirmId] = useState(null)
 
   // Require a majority of everyone currently in the room before a patch
   // (which can include arbitrary JS via `new Function`) is allowed to apply.
@@ -40,6 +42,15 @@ export default function PatchControls({
     setJs('')
     setDesc('')
     setShowForm(false)
+  }
+
+  const handleApplyClick = (r) => {
+    if (r.js && confirmId !== r.id) {
+      setConfirmId(r.id)
+      return
+    }
+    setConfirmId(null)
+    onApply(r)
   }
 
   return (
@@ -111,6 +122,7 @@ export default function PatchControls({
           {requests.map((r) => {
             const { approve, reject } = tally(r)
             const canApply = approve >= requiredApprovals
+            const awaitingConfirm = confirmId === r.id
             return (
               <div
                 key={r.id}
@@ -137,23 +149,36 @@ export default function PatchControls({
                       <X className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => canApply && onApply(r)}
+                      onClick={() => canApply && handleApplyClick(r)}
                       disabled={!canApply}
                       title={
-                        canApply
-                          ? 'Apply now'
-                          : `Needs ${requiredApprovals - approve} more approval${
+                        !canApply
+                          ? `Needs ${requiredApprovals - approve} more approval${
                               requiredApprovals - approve === 1 ? '' : 's'
                             }`
+                          : awaitingConfirm
+                          ? 'Click again to confirm running this JS on every peer'
+                          : 'Apply now'
                       }
-                      className={`px-2 py-1 rounded text-xs transition ${
-                        canApply
-                          ? 'bg-cyan/20 text-cyan hover:bg-cyan/30'
-                          : 'bg-midnight-lighter text-slate cursor-not-allowed opacity-60'
+                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition ${
+                        !canApply
+                          ? 'bg-midnight-lighter text-slate cursor-not-allowed opacity-60'
+                          : awaitingConfirm
+                          ? 'bg-red/20 text-red border border-red/40 hover:bg-red/30'
+                          : 'bg-cyan/20 text-cyan hover:bg-cyan/30'
                       }`}
                     >
-                      Apply now
+                      {awaitingConfirm && <AlertOctagon className="w-3 h-3" />}
+                      {awaitingConfirm ? 'Confirm — runs JS' : 'Apply now'}
                     </button>
+                    {awaitingConfirm && (
+                      <button
+                        onClick={() => setConfirmId(null)}
+                        className="text-xs text-slate hover:text-white px-1"
+                      >
+                        cancel
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-slate">
@@ -163,6 +188,12 @@ export default function PatchControls({
                   <span className="text-red">{reject} reject</span>
                   <span>·</span>
                   <span>{requiredApprovals} needed</span>
+                  {r.js && (
+                    <>
+                      <span>·</span>
+                      <span className="text-amber">includes JS</span>
+                    </>
+                  )}
                 </div>
                 {r.css && (
                   <pre className="text-xs font-mono bg-midnight p-2 rounded overflow-auto max-h-20 text-green">

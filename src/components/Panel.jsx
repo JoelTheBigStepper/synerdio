@@ -57,8 +57,8 @@ export default function Panel({ roomId, displayName, room }) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="h-8 shrink-0 border-b border-[var(--color-border)] px-3 flex items-center gap-4 text-[11px] font-mono">
-        <span className="flex items-center gap-1.5">
+      <div className="h-9 md:h-8 shrink-0 border-b border-[var(--color-border)] px-3 flex items-center gap-4 text-[11px] font-mono overflow-x-auto">
+        <span className="flex items-center gap-1.5 shrink-0">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
               room.connected ? 'bg-[var(--color-green)]' : 'bg-[var(--color-amber)]'
@@ -66,10 +66,10 @@ export default function Panel({ roomId, displayName, room }) {
           />
           {room.connected ? 'connected' : 'connecting'}
         </span>
-        <span className="text-[var(--color-muted)]">
+        <span className="text-[var(--color-muted)] shrink-0">
           {peerCount} peer{peerCount !== 1 ? 's' : ''}
         </span>
-        <span className="text-[var(--color-muted)] truncate max-w-[220px]">
+        <span className="hidden sm:inline text-[var(--color-muted)] truncate max-w-[220px]">
           {metrics?.url
             ? (() => {
                 try {
@@ -80,7 +80,7 @@ export default function Panel({ roomId, displayName, room }) {
               })()
             : '—'}
         </span>
-        <div className="flex-1" />
+        <div className="flex-1 min-w-2" />
         <ExportButton
           metrics={metrics}
           roomId={roomId}
@@ -95,16 +95,16 @@ export default function Panel({ roomId, displayName, room }) {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex">
-        <nav className="w-28 shrink-0 border-r border-[var(--color-border)] py-2">
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        <nav className="shrink-0 flex flex-row md:flex-col overflow-x-auto md:overflow-visible border-b md:border-b-0 md:border-r border-[var(--color-border)] md:w-28 md:py-2">
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`w-full text-left px-3 h-8 text-[12px] font-mono transition ${
+              className={`shrink-0 md:w-full text-left px-3 h-9 md:h-8 text-[12px] font-mono whitespace-nowrap transition ${
                 tab === t.id
-                  ? 'text-cyan bg-elevated border-r-2 border-cyan'
+                  ? 'text-cyan bg-elevated border-b-2 md:border-b-0 md:border-r-2 border-cyan'
                   : 'text-text-dim hover:text-text'
               }`}
             >
@@ -113,7 +113,7 @@ export default function Panel({ roomId, displayName, room }) {
           ))}
         </nav>
 
-        <div className="flex-1 min-w-0 overflow-auto p-4">
+        <div className="flex-1 min-w-0 overflow-auto p-3 md:p-4">
           {tab === 'metrics' && <MetricsPanel metrics={metrics} />}
           {tab === 'peers' && (
             <PeerList
@@ -139,7 +139,7 @@ export default function Panel({ roomId, displayName, room }) {
         </div>
       </div>
 
-      <div className="h-7 shrink-0 border-t border-[var(--color-border)] px-3 flex items-center text-[11px] font-mono text-[var(--color-muted)]">
+      <div className="h-7 shrink-0 border-t border-[var(--color-border)] px-3 flex items-center text-[11px] font-mono text-[var(--color-muted)] overflow-x-auto whitespace-nowrap">
         agent must be injected on the target page · ctrl/cmd-click to highlight · room {roomId}
       </div>
 
