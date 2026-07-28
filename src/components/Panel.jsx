@@ -133,6 +133,7 @@ export default function Panel({ roomId, displayName, room }) {
               onRevert={room.revertPatch}
               selfName={displayName}
               peerCount={peerCount}
+              highlights={room.highlights}
             />
           )}
           {tab === 'ai' && <AIChat metrics={metrics} />}
