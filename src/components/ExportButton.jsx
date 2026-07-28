@@ -73,7 +73,7 @@ export default function ExportButton({ metrics, roomId, peers, patches }) {
       className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-midnight-lighter border border-cyan/20 hover:border-cyan/40 text-slate hover:text-white transition"
     >
       <Download className="w-3.5 h-3.5" />
-      Export Report
+      <span className="hidden sm:inline">Export Report</span>
     </button>
   )
 }

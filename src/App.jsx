@@ -11,6 +11,8 @@ export default function App() {
   const [displayName, setDisplayName] = useState(() => {
     return localStorage.getItem('synerdio-name') || `dev-${Math.floor(Math.random() * 9000 + 1000)}`
   })
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(displayName)
 
   const room = useRoom(roomId, displayName, mode === 'room')
 
@@ -22,6 +24,10 @@ export default function App() {
       setMode('room')
     }
   }, [])
+
+  useEffect(() => {
+    setNameDraft(displayName)
+  }, [displayName])
 
   const handleCreateRoom = (name) => {
     const id = crypto.randomUUID().slice(0, 8)
@@ -53,6 +59,24 @@ export default function App() {
     window.history.pushState({}, '', url)
   }
 
+  // Renaming just updates state — useRoom rebroadcasts presence to peers
+  // already in the room instead of leaving and rejoining.
+  const commitName = () => {
+    const trimmed = nameDraft.trim()
+    if (trimmed && trimmed !== displayName) {
+      localStorage.setItem('synerdio-name', trimmed)
+      setDisplayName(trimmed)
+    } else {
+      setNameDraft(displayName)
+    }
+    setEditingName(false)
+  }
+
+  const cancelNameEdit = () => {
+    setNameDraft(displayName)
+    setEditingName(false)
+  }
+
   return (
     <div className={`min-h-full flex flex-col ${theme}`}>
       <header className="h-10 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-3 gap-3">
@@ -66,6 +90,29 @@ export default function App() {
               <span className="font-mono text-[12px] text-[var(--color-text-dim)] truncate">
                 {roomId}
               </span>
+              <span className="text-[var(--color-muted)]">·</span>
+              {editingName ? (
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={commitName}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitName()
+                    if (e.key === 'Escape') cancelNameEdit()
+                  }}
+                  className="h-5 w-24 px-1 bg-[var(--color-elevated)] border border-[var(--color-cyan)] text-[11px] font-mono outline-none text-[var(--color-text)]"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingName(true)}
+                  title="Click to rename"
+                  className="font-mono text-[12px] text-[var(--color-cyan)] hover:underline truncate max-w-[120px]"
+                >
+                  {displayName}
+                </button>
+              )}
             </>
           )}
         </div>

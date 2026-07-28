@@ -8,7 +8,13 @@ export default function Landing({ onCreate, onJoin, defaultName }) {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
-  const consoleSnippet = `(()=>{const r=prompt('Room ID');if(!r)return;const s=document.createElement('script');s.src='${origin}/agent.js';s.dataset.room=r;s.onerror=()=>console.error('[synerdio] agent failed to load — deploy on HTTPS?');document.documentElement.appendChild(s)})();`
+  const injectCode = `(function(){var r=prompt('Synerdio room ID');if(!r)return;var s=document.createElement('script');s.src='${origin}/agent.js';s.dataset.room=r;s.onerror=function(){console.error('[synerdio] agent failed to load — deploy on HTTPS?')};document.documentElement.appendChild(s);})();`
+
+  const consoleSnippet = injectCode
+  // Bookmarklets need a javascript: URI. Encoding keeps the browser from
+  // choking on quotes/semicolons when the link is dragged to the bookmarks
+  // bar rather than pasted into the console.
+  const bookmarkletHref = 'javascript:' + encodeURIComponent(injectCode)
 
   const copySnippet = async () => {
     try {
@@ -116,16 +122,33 @@ export default function Landing({ onCreate, onJoin, defaultName }) {
           <p className="text-[12px] text-[var(--color-text-dim)] leading-relaxed">
             1. Deploy this app to HTTPS (Vercel).<br />
             2. Create a room, copy the room id.<br />
-            3. On the target site → DevTools Console → paste snippet → enter room id.<br />
+            3. On the target site → drag the bookmarklet below (or paste the console
+            snippet) → enter room id.<br />
             4. Green dot on the badge = connected as a peer.
           </p>
-          <button
-            type="button"
-            onClick={copySnippet}
-            className="h-8 px-3 text-[11px] font-mono border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-green)] hover:text-[var(--color-green)] transition"
-          >
-            {copied ? 'copied' : 'copy console snippet'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={bookmarkletHref}
+              draggable="true"
+              onClick={(e) => e.preventDefault()}
+              title="Drag this to your bookmarks bar"
+              className="h-8 px-3 flex items-center text-[11px] font-mono border border-dashed border-[var(--color-cyan)]/50 text-[var(--color-cyan)] hover:bg-[var(--color-cyan)]/10 transition cursor-grab active:cursor-grabbing select-none"
+            >
+              ↳ Synerdio Inject
+            </a>
+            <button
+              type="button"
+              onClick={copySnippet}
+              className="h-8 px-3 text-[11px] font-mono border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-green)] hover:text-[var(--color-green)] transition"
+            >
+              {copied ? 'copied' : 'copy console snippet'}
+            </button>
+          </div>
+          <p className="text-[11px] text-[var(--color-muted)] leading-relaxed">
+            Drag "↳ Synerdio Inject" to your bookmarks bar. On any site, click it and
+            enter the room ID — no console needed. (Some sites' CSP may still block it;
+            the console snippet is the fallback.)
+          </p>
         </div>
       </div>
 
