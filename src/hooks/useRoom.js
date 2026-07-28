@@ -16,6 +16,13 @@ export function useRoom(roomId, displayName, active) {
 
   const roomRef = useRef(null)
   const actionsRef = useRef({})
+  // Renaming shouldn't tear down and rejoin the WebRTC room, so the join
+  // effect below reads the *current* name from this ref instead of
+  // depending on `displayName` directly.
+  const nameRef = useRef(displayName)
+  useEffect(() => {
+    nameRef.current = displayName
+  }, [displayName])
 
   useEffect(() => {
     if (!active || !roomId) return
@@ -39,7 +46,7 @@ export function useRoom(roomId, displayName, active) {
         ...p,
         [peerId]: { id: peerId, name: p[peerId]?.name || 'peer', joinedAt: Date.now() },
       }))
-      actionsRef.current.sendPresence?.({ name: displayName })
+      actionsRef.current.sendPresence?.({ name: nameRef.current })
     })
 
     room.onPeerLeave((peerId) => {
@@ -91,7 +98,7 @@ export function useRoom(roomId, displayName, active) {
       sendPatchRevert,
     }
 
-    sendPresence({ name: displayName })
+    sendPresence({ name: nameRef.current })
     setSelfId(room.selfId || 'local')
     setConnected(true)
     setConnectionError(null)
@@ -191,7 +198,17 @@ export function useRoom(roomId, displayName, active) {
       setCursors({})
       setHighlights({})
     }
-  }, [active, roomId, displayName])
+    // Intentionally excludes `displayName` — renaming is handled by the
+    // effect below via a presence rebroadcast, not a room rejoin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, roomId])
+
+  // Rebroadcast presence when the display name changes, without touching
+  // the WebRTC connection itself.
+  useEffect(() => {
+    if (!connected) return
+    actionsRef.current.sendPresence?.({ name: displayName })
+  }, [displayName, connected])
 
   const broadcastCursor = useCallback(
     (x, y) => {
