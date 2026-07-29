@@ -15,7 +15,7 @@
   console.log("%c[synerdio] loading trystero room=" + ROOM, "color:#00F0FF;font-weight:bold");
 
   var style = document.createElement("style");
-  style.textContent = ".synerdio-highlight{outline:1.5px solid #00F0FF!important;outline-offset:1px!important;background-color:rgba(0,240,255,.07)!important}.synerdio-cursor{position:fixed;width:14px;height:14px;border-radius:50%;border:1.5px solid #00F0FF;pointer-events:none;z-index:2147483646;transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}.synerdio-cursor::after{content:attr(data-name);position:absolute;top:16px;left:50%;transform:translateX(-50%);background:#0B0F19;color:#00F0FF;font:10px/1.2 ui-monospace,monospace;padding:1px 5px;white-space:nowrap;border:1px solid rgba(0,240,255,.35)}#synerdio-badge{position:fixed;bottom:12px;right:12px;z-index:2147483647;background:#0B0F19;color:#E2E8F0;border:1px solid #1E293B;font:11px/1.3 ui-monospace,monospace;padding:6px 10px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.45)}#synerdio-badge .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B}#synerdio-badge .dot.on{background:#10B981;box-shadow:0 0 6px #10B981}#synerdio-badge a{color:#00F0FF;text-decoration:none}";
+  style.textContent = ".synerdio-highlight{outline:1.5px solid #00F0FF!important;outline-offset:1px!important;background-color:rgba(0,240,255,.07)!important}.synerdio-cursor{position:fixed;width:14px;height:14px;border-radius:50%;border:1.5px solid #00F0FF;pointer-events:none;z-index:2147483646;transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}.synerdio-cursor::after{content:attr(data-name);position:absolute;top:16px;left:50%;transform:translateX(-50%);background:#0B0F19;color:#00F0FF;font:10px/1.2 ui-monospace,monospace;padding:1px 5px;white-space:nowrap;border:1px solid rgba(0,240,255,.35)}#synerdio-badge{position:fixed;bottom:12px;right:12px;z-index:2147483647;background:#0B0F19;color:#E2E8F0;border:1px solid #1E293B;font:11px/1.3 ui-monospace,monospace;padding:6px 10px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.45)}#synerdio-badge .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B}#synerdio-badge .dot.on{background:#10B981;box-shadow:0 0 6px #10B981}#synerdio-badge .dot.err{background:#EF4444;box-shadow:0 0 6px #EF4444}#synerdio-badge a{color:#00F0FF;text-decoration:none}";
   document.documentElement.appendChild(style);
   var badge = document.createElement("div");
   badge.id = "synerdio-badge";
@@ -25,14 +25,22 @@
 
   function start(joinRoom) {
     var room;
-    try { room = joinRoom({ appId: APP_ID }, ROOM); } catch (err) { console.error("[synerdio] join failed", err); return; }
+    try { room = joinRoom({ appId: APP_ID }, ROOM); } catch (err) {
+      console.error("[synerdio] join failed", err);
+      dot.classList.add("err");
+      badge.title = "Failed to join room: " + (err && err.message ? err.message : err);
+      return;
+    }
     function act(n) { var p = room.makeAction(n); return { send: p[0], get: p[1] }; }
     var presence = act("presence"), cursor = act("cursor"), highlight = act("highlight");
     var metrics = act("metrics"), patchApply = act("patchApply"), patchRevert = act("patchRevert");
-    presence.send({ name: selfName });
+    // Tagged so the panel's voting UI can tell "real voter" (a panel
+    // instance) apart from "injected agent" (which has no voting UI and
+    // can never cast a vote) when computing approval quorums.
+    presence.send({ name: selfName, role: "agent" });
     dot.classList.add("on");
     console.log("%c[synerdio] connected as peer", "color:#10B981");
-    room.onPeerJoin(function (id) { console.log("[synerdio] peer joined", id); presence.send({ name: selfName }); });
+    room.onPeerJoin(function (id) { console.log("[synerdio] peer joined", id); presence.send({ name: selfName, role: "agent" }); });
     var cursorEls = new Map();
     function upsertCursor(peerId, x, y, name) {
       var el = cursorEls.get(peerId);
@@ -65,14 +73,31 @@
     function clearHighlights() {
       document.querySelectorAll(".synerdio-highlight").forEach(function (n) { n.classList.remove("synerdio-highlight"); });
     }
+    function highlightTarget(target) {
+      var selector = uniqueSelector(target);
+      clearHighlights(); target.classList.add("synerdio-highlight");
+      highlight.send({ selector: selector, name: selfName });
+    }
+    // Cmd+click (Mac) or Ctrl+click (Windows/Linux) both fire a normal
+    // "click" event with the respective modifier set — this covers that
+    // path.
     function onClick(e) {
       if (!(e.metaKey || e.ctrlKey)) return;
       e.preventDefault(); e.stopPropagation();
-      var selector = uniqueSelector(e.target);
-      clearHighlights(); e.target.classList.add("synerdio-highlight");
-      highlight.send({ selector: selector, name: selfName });
+      highlightTarget(e.target);
     }
     document.addEventListener("click", onClick, true);
+    // On Mac, holding Ctrl and clicking is the OS-level "secondary click"
+    // gesture — the browser fires "contextmenu" instead of "click" for it,
+    // so without this, Ctrl+click silently does nothing on Mac (Cmd+click
+    // still works fine via onClick above, since it doesn't trigger the
+    // context menu).
+    function onContextMenu(e) {
+      if (!e.ctrlKey) return;
+      e.preventDefault(); e.stopPropagation();
+      highlightTarget(e.target);
+    }
+    document.addEventListener("contextmenu", onContextMenu, true);
     highlight.get(function (data) {
       if (!data || !data.selector) return;
       clearHighlights();
@@ -126,24 +151,56 @@
     };
     patchApply.get(function (data) { window.__synerdioApplyPatch(data); });
     patchRevert.get(function (data) { if (data && data.id) window.__synerdioRevertPatch(data.id); });
+
     window.__synerdioLeave = function () {
+      if (!window.__synerdioAgent) return;
       try { room.leave(); } catch (_) {}
       try { if (obs) obs.disconnect(); } catch (_) {}
       clearInterval(metricsInterval);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("contextmenu", onContextMenu, true);
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onUnload);
       cursorEls.forEach(function (el) { el.remove(); });
       cursorEls.clear(); badge.remove(); style.remove();
       window.__synerdioAgent = false;
       console.log("[synerdio] left");
     };
+
+    // Leave promptly on tab close/navigation instead of lingering as a
+    // "ghost" peer in everyone else's peer list until the WebRTC
+    // connection times out on its own.
+    function onUnload() { window.__synerdioLeave(); }
+    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onUnload);
   }
+
   var s = document.createElement("script");
   s.type = "module";
   s.textContent = 'import { joinRoom } from "https://esm.sh/trystero@0.22.0"; window.__synerdioJoinRoom = joinRoom; window.dispatchEvent(new Event("synerdio-trystero-ready"));';
   document.documentElement.appendChild(s);
+
+  // If the CDN import is blocked (network issue, or a page CSP that
+  // disallows esm.sh) the module script never runs at all, so the
+  // "ready" event never fires and the badge would otherwise sit on an
+  // ambiguous amber dot forever. Surface that as a visible failure
+  // instead of hanging silently.
+  var readyTimeout = setTimeout(function () {
+    if (!window.__synerdioJoinRoom) {
+      dot.classList.add("err");
+      badge.title = "Trystero failed to load — likely blocked by this site's CSP or network. Check DevTools console.";
+      console.error("[synerdio] trystero did not load within 10s — likely blocked by CSP or network");
+    }
+  }, 10000);
+
   window.addEventListener("synerdio-trystero-ready", function () {
+    clearTimeout(readyTimeout);
     if (window.__synerdioJoinRoom) start(window.__synerdioJoinRoom);
-    else console.error("[synerdio] trystero CDN failed");
+    else {
+      console.error("[synerdio] trystero CDN failed");
+      dot.classList.add("err");
+      badge.title = "Trystero failed to load — check network/CSP and reload.";
+    }
   }, { once: true });
 })();
