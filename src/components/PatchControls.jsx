@@ -24,7 +24,7 @@ export default function PatchControls({
   onApply,
   onRevert,
   selfName,
-  peerCount = 1,
+  voterCount = 1,
   highlights = {},
 }) {
   const [css, setCss] = useState('')
@@ -39,9 +39,11 @@ export default function PatchControls({
   // Two-step confirmation before running a JS patch on every peer's page.
   const [confirmId, setConfirmId] = useState(null)
 
-  // Require a majority of everyone currently in the room before a patch
-  // (which can include arbitrary JS via `new Function`) is allowed to apply.
-  const requiredApprovals = Math.max(1, Math.ceil(peerCount / 2))
+  // Require a majority of the room's *voters* — panel instances only.
+  // Injected agents have no voting UI and can never approve anything, so
+  // they're excluded from this count (otherwise the quorum could become
+  // mathematically unreachable with more agents than people).
+  const requiredApprovals = Math.max(1, Math.ceil(voterCount / 2))
 
   // Elements someone in the room has Ctrl/Cmd-clicked recently — these are
   // real, valid selectors, so picking one here beats typing a selector by
@@ -156,8 +158,9 @@ export default function PatchControls({
 
       <p className="text-sm text-slate">
         Ctrl/Cmd-click an element on the target page, pick it below, then choose a fix — no
-        code required. A majority of the room ({requiredApprovals} of {peerCount}) must
-        approve before it applies for everyone.
+        code required. A majority of the room's voters ({requiredApprovals} of {voterCount})
+        must approve before it applies for everyone. Injected agents can't vote — only people
+        in the panel can.
       </p>
 
       {showForm && (
@@ -193,7 +196,7 @@ export default function PatchControls({
             ) : (
               <p className="text-xs text-slate">
                 No element highlighted yet — Ctrl/Cmd-click something on the target page and
-                it'll show up here.
+                it'll show up here. (On Mac, Ctrl+click and Cmd+click both work.)
               </p>
             )}
             <input

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { RefreshCw } from 'lucide-react'
 import MetricsPanel from './MetricsPanel'
 import PeerList from './PeerList'
 import PatchControls from './PatchControls'
@@ -53,18 +54,30 @@ export default function Panel({ roomId, displayName, room }) {
   }, [])
 
   const metrics = room.metrics || localMetrics
-  const peerCount = Object.keys(room.peers || {}).length + 1
+  const peerCount = room.peerCount ?? Object.keys(room.peers || {}).length + 1
+
+  // Distinguishes "still negotiating" from "joined the room but nobody
+  // else is here yet" from "something actually went wrong" — previously
+  // all three looked identical (an ambiguous amber dot).
+  let statusLabel = 'connecting'
+  let statusColor = 'bg-[var(--color-amber)] animate-pulse'
+  if (room.connectionError) {
+    statusLabel = 'connection error'
+    statusColor = 'bg-[var(--color-red)]'
+  } else if (room.connected && peerCount > 1) {
+    statusLabel = 'connected'
+    statusColor = 'bg-[var(--color-green)]'
+  } else if (room.connected) {
+    statusLabel = 'waiting for peers'
+    statusColor = 'bg-[var(--color-amber)]'
+  }
 
   return (
     <div className="h-full flex flex-col">
       <div className="h-9 md:h-8 shrink-0 border-b border-[var(--color-border)] px-3 flex items-center gap-4 text-[11px] font-mono overflow-x-auto">
         <span className="flex items-center gap-1.5 shrink-0">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              room.connected ? 'bg-[var(--color-green)]' : 'bg-[var(--color-amber)]'
-            }`}
-          />
-          {room.connected ? 'connected' : 'connecting'}
+          <span className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+          {statusLabel}
         </span>
         <span className="text-[var(--color-muted)] shrink-0">
           {peerCount} peer{peerCount !== 1 ? 's' : ''}
@@ -90,8 +103,15 @@ export default function Panel({ roomId, displayName, room }) {
       </div>
 
       {room.connectionError && (
-        <div className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-[var(--color-amber)] bg-[var(--color-amber)]/10 border-b border-[var(--color-amber)]/30">
-          Connection error: {room.connectionError}
+        <div className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-[var(--color-amber)] bg-[var(--color-amber)]/10 border-b border-[var(--color-amber)]/30 flex items-center gap-3">
+          <span>Connection error: {room.connectionError}</span>
+          <button
+            onClick={room.reconnect}
+            className="flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-amber)]/50 hover:bg-[var(--color-amber)]/20 transition shrink-0"
+          >
+            <RefreshCw className="w-3 h-3" />
+            retry
+          </button>
         </div>
       )}
 
@@ -132,7 +152,7 @@ export default function Panel({ roomId, displayName, room }) {
               onApply={room.applyPatch}
               onRevert={room.revertPatch}
               selfName={displayName}
-              peerCount={peerCount}
+              voterCount={room.voterCount ?? peerCount}
               highlights={room.highlights}
             />
           )}
@@ -141,7 +161,7 @@ export default function Panel({ roomId, displayName, room }) {
       </div>
 
       <div className="h-7 shrink-0 border-t border-[var(--color-border)] px-3 flex items-center text-[11px] font-mono text-[var(--color-muted)] overflow-x-auto whitespace-nowrap">
-        agent must be injected on the target page · ctrl/cmd-click to highlight · room {roomId}
+        agent must be injected on the target page · cmd/ctrl-click to highlight · room {roomId}
       </div>
 
       <CursorOverlay cursors={room.cursors} />
