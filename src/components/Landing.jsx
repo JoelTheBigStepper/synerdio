@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 export default function Landing({ onCreate, onJoin, defaultName }) {
   const [name, setName] = useState(defaultName || '')
   const [joinId, setJoinId] = useState('')
   const [mode, setMode] = useState('create')
   const [copied, setCopied] = useState(false)
+  const bookmarkletRef = useRef(null)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
@@ -15,6 +16,17 @@ export default function Landing({ onCreate, onJoin, defaultName }) {
   // choking on quotes/semicolons when the link is dragged to the bookmarks
   // bar rather than pasted into the console.
   const bookmarkletHref = 'javascript:' + encodeURIComponent(injectCode)
+
+  useEffect(() => {
+    // React 19 strips javascript: URLs passed through JSX's href prop as
+    // an XSS precaution — which breaks bookmarklets entirely, since that's
+    // the only way a bookmarklet link works. Setting it directly on the
+    // underlying DOM node bypasses React's attribute handling, so the
+    // dragged bookmark actually keeps its code.
+    if (bookmarkletRef.current) {
+      bookmarkletRef.current.setAttribute('href', bookmarkletHref)
+    }
+  }, [bookmarkletHref])
 
   const copySnippet = async () => {
     try {
@@ -128,7 +140,7 @@ export default function Landing({ onCreate, onJoin, defaultName }) {
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <a
-              href={bookmarkletHref}
+              ref={bookmarkletRef}
               draggable="true"
               onClick={(e) => e.preventDefault()}
               title="Drag this to your bookmarks bar"
@@ -147,7 +159,8 @@ export default function Landing({ onCreate, onJoin, defaultName }) {
           <p className="text-[11px] text-[var(--color-muted)] leading-relaxed">
             Drag "↳ Synerdio Inject" to your bookmarks bar. On any site, click it and
             enter the room ID — no console needed. (Some sites' CSP may still block it;
-            the console snippet is the fallback.)
+            the console snippet is the fallback.) On Mac, use Cmd+click or Ctrl+click to
+            highlight elements — both work.
           </p>
         </div>
       </div>
