@@ -13,6 +13,9 @@ export function useRoom(roomId, displayName, active) {
   const [connected, setConnected] = useState(false)
   const [connectionError, setConnectionError] = useState(null)
   const [selfId, setSelfId] = useState(null)
+  // Bumping this forces the join effect to re-run, so a person can retry
+  // after a failed join without reloading the page.
+  const [retryKey, setRetryKey] = useState(0)
 
   const roomRef = useRef(null)
   const actionsRef = useRef({})
@@ -23,6 +26,12 @@ export function useRoom(roomId, displayName, active) {
   useEffect(() => {
     nameRef.current = displayName
   }, [displayName])
+
+  // Votes and patch requests travel as separate Trystero actions, which
+  // can arrive out of order relative to each other. If a vote shows up
+  // before the patch request it belongs to, it's buffered here and
+  // merged in once the request arrives, instead of being silently lost.
+  const pendingVotesRef = useRef({})
 
   useEffect(() => {
     if (!active || !roomId) return
@@ -44,9 +53,9 @@ export function useRoom(roomId, displayName, active) {
       if (cancelled) return
       setPeers((p) => ({
         ...p,
-        [peerId]: { id: peerId, name: p[peerId]?.name || 'peer', joinedAt: Date.now() },
+        [peerId]: { id: peerId, name: p[peerId]?.name || 'peer', role: p[peerId]?.role || 'panel', joinedAt: Date.now() },
       }))
-      actionsRef.current.sendPresence?.({ name: nameRef.current })
+      actionsRef.current.sendPresence?.({ name: nameRef.current, role: 'panel' })
     })
 
     room.onPeerLeave((peerId) => {
@@ -98,10 +107,11 @@ export function useRoom(roomId, displayName, active) {
       sendPatchRevert,
     }
 
-    sendPresence({ name: nameRef.current })
+    sendPresence({ name: nameRef.current, role: 'panel' })
     setSelfId(room.selfId || 'local')
     setConnected(true)
     setConnectionError(null)
+    pendingVotesRef.current = {}
 
     getPresence((data, peerId) => {
       if (cancelled) return
@@ -110,6 +120,10 @@ export function useRoom(roomId, displayName, active) {
         [peerId]: {
           id: peerId,
           name: data?.name || 'peer',
+          // Injected agents can't vote (no voting UI exists on the target
+          // page), so this is used to exclude them from patch-approval
+          // quorums.
+          role: data?.role === 'agent' ? 'agent' : 'panel',
           joinedAt: p[peerId]?.joinedAt || Date.now(),
         },
       }))
@@ -142,12 +156,14 @@ export function useRoom(roomId, displayName, active) {
       if (cancelled || !data) return
       setPatchRequests((reqs) => {
         if (reqs.some((r) => r.id === data.id)) return reqs
+        const buffered = pendingVotesRef.current[data.id]
+        if (buffered) delete pendingVotesRef.current[data.id]
         return [
           ...reqs,
           {
             ...data,
             from: peerId,
-            votes: {},
+            votes: buffered || {},
             id: data.id || crypto.randomUUID(),
           },
         ]
@@ -158,13 +174,23 @@ export function useRoom(roomId, displayName, active) {
     // name can't overwrite each other's vote.
     getPatchVote((data, peerId) => {
       if (cancelled || !data) return
-      setPatchRequests((reqs) =>
-        reqs.map((r) =>
+      setPatchRequests((reqs) => {
+        const exists = reqs.some((r) => r.id === data.id)
+        if (!exists) {
+          // The request hasn't arrived yet — buffer this vote instead of
+          // dropping it.
+          pendingVotesRef.current[data.id] = {
+            ...pendingVotesRef.current[data.id],
+            [peerId]: { approve: !!data.approve, name: data.voter },
+          }
+          return reqs
+        }
+        return reqs.map((r) =>
           r.id === data.id
             ? { ...r, votes: { ...r.votes, [peerId]: { approve: !!data.approve, name: data.voter } } }
             : r
         )
-      )
+      })
     })
 
     getPatchApply((data) => {
@@ -187,8 +213,21 @@ export function useRoom(roomId, displayName, active) {
       }
     })
 
+    // Leave promptly on tab close/navigation instead of lingering as a
+    // "ghost" peer in everyone else's peer list until the connection
+    // times out on its own.
+    const handleUnload = () => {
+      try {
+        room.leave()
+      } catch (_) {}
+    }
+    window.addEventListener('beforeunload', handleUnload)
+    window.addEventListener('pagehide', handleUnload)
+
     return () => {
       cancelled = true
+      window.removeEventListener('beforeunload', handleUnload)
+      window.removeEventListener('pagehide', handleUnload)
       try {
         room.leave()
       } catch (_) {}
@@ -201,14 +240,19 @@ export function useRoom(roomId, displayName, active) {
     // Intentionally excludes `displayName` — renaming is handled by the
     // effect below via a presence rebroadcast, not a room rejoin.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, roomId])
+  }, [active, roomId, retryKey])
 
   // Rebroadcast presence when the display name changes, without touching
   // the WebRTC connection itself.
   useEffect(() => {
     if (!connected) return
-    actionsRef.current.sendPresence?.({ name: displayName })
+    actionsRef.current.sendPresence?.({ name: displayName, role: 'panel' })
   }, [displayName, connected])
+
+  const reconnect = useCallback(() => {
+    setConnectionError(null)
+    setRetryKey((k) => k + 1)
+  }, [])
 
   const broadcastCursor = useCallback(
     (x, y) => {
@@ -238,10 +282,21 @@ export function useRoom(roomId, displayName, active) {
         ts: Date.now(),
       }
       actionsRef.current.sendPatchReq?.(payload)
-      setPatchRequests((r) => [...r, { ...payload, from: 'self', votes: {} }])
+      // Proposing a patch counts as your own approval of it — you were
+      // about to click "approve" on it anyway, and requiring a separate
+      // click just to vote for your own proposal was confusing.
+      actionsRef.current.sendPatchVote?.({ id, voter: displayName, approve: true })
+      setPatchRequests((r) => [
+        ...r,
+        {
+          ...payload,
+          from: 'self',
+          votes: { [selfId || 'self']: { approve: true, name: displayName } },
+        },
+      ])
       return id
     },
-    [displayName]
+    [displayName, selfId]
   )
 
   const votePatch = useCallback(
@@ -295,13 +350,18 @@ export function useRoom(roomId, displayName, active) {
   }, [])
 
   const peerCount = Object.keys(peers).length + 1
+  // Injected agents can't vote — only panel instances (including you)
+  // can, so the patch-approval quorum is based on this, not peerCount.
+  const voterCount = Object.values(peers).filter((p) => p.role !== 'agent').length + 1
 
   return {
     connected,
     connectionError,
+    reconnect,
     selfId,
     peers,
     peerCount,
+    voterCount,
     cursors,
     highlights,
     metrics,
