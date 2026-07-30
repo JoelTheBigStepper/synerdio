@@ -7,6 +7,7 @@ export function useRoom(roomId, displayName, active) {
   const [peers, setPeers] = useState({})
   const [cursors, setCursors] = useState({})
   const [highlights, setHighlights] = useState({})
+  const [lastHighlight, setLastHighlight] = useState(null)
   const [metrics, setMetrics] = useState(null)
   const [patches, setPatches] = useState([])
   const [patchRequests, setPatchRequests] = useState([])
@@ -145,6 +146,12 @@ export function useRoom(roomId, displayName, active) {
           ? { selector: data.selector, name: data.name }
           : null,
       }))
+      // Surfaced separately (with a timestamp) so the panel can show a
+      // "someone just highlighted this — propose a fix?" banner the
+      // moment it happens, on whichever tab you're on.
+      if (data?.selector) {
+        setLastHighlight({ peerId, selector: data.selector, name: data.name, ts: Date.now() })
+      }
     })
 
     getMetrics((data) => {
@@ -236,6 +243,7 @@ export function useRoom(roomId, displayName, active) {
       setPeers({})
       setCursors({})
       setHighlights({})
+      setLastHighlight(null)
     }
     // Intentionally excludes `displayName` — renaming is handled by the
     // effect below via a presence rebroadcast, not a room rejoin.
@@ -364,6 +372,7 @@ export function useRoom(roomId, displayName, active) {
     voterCount,
     cursors,
     highlights,
+    lastHighlight,
     metrics,
     patches,
     patchRequests,
