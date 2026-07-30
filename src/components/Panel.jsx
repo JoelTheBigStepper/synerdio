@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { RefreshCw, Crosshair, X as XIcon } from 'lucide-react'
 import MetricsPanel from './MetricsPanel'
 import PeerList from './PeerList'
 import PatchControls from './PatchControls'
@@ -14,9 +14,16 @@ const TABS = [
   { id: 'ai', label: 'ai' },
 ]
 
+// How long the "propose a fix?" banner stays up after a highlight, if
+// nobody acts on it or dismisses it.
+const HIGHLIGHT_BANNER_TTL_MS = 30000
+
 export default function Panel({ roomId, displayName, room }) {
   const [tab, setTab] = useState('metrics')
   const [localMetrics, setLocalMetrics] = useState(null)
+  const [dismissedHighlightTs, setDismissedHighlightTs] = useState(0)
+  const [focusRequest, setFocusRequest] = useState(null)
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     const collect = () => {
@@ -53,8 +60,35 @@ export default function Panel({ roomId, displayName, room }) {
     return () => clearInterval(id)
   }, [])
 
+  // Ticks so the highlight banner's age-based expiry re-evaluates even if
+  // nothing else triggers a re-render for a while.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 2000)
+    return () => clearInterval(id)
+  }, [])
+
   const metrics = room.metrics || localMetrics
   const peerCount = room.peerCount ?? Object.keys(room.peers || {}).length + 1
+
+  const showHighlightBanner = useMemo(() => {
+    const h = room.lastHighlight
+    if (!h) return false
+    if (h.ts <= dismissedHighlightTs) return false
+    if (now - h.ts > HIGHLIGHT_BANNER_TTL_MS) return false
+    return true
+  }, [room.lastHighlight, dismissedHighlightTs, now])
+
+  const proposeFromBanner = () => {
+    const h = room.lastHighlight
+    if (!h) return
+    setFocusRequest({ selector: h.selector, key: h.ts })
+    setDismissedHighlightTs(h.ts)
+    setTab('patches')
+  }
+
+  const dismissBanner = () => {
+    if (room.lastHighlight) setDismissedHighlightTs(room.lastHighlight.ts)
+  }
 
   // Distinguishes "still negotiating" from "joined the room but nobody
   // else is here yet" from "something actually went wrong" — previously
@@ -115,6 +149,29 @@ export default function Panel({ roomId, displayName, room }) {
         </div>
       )}
 
+      {/* Visible on every tab — this is what makes a Ctrl/Cmd-click
+          reliably surface to everyone, instead of depending on someone
+          remembering to check the Patches tab. */}
+      {showHighlightBanner && tab !== 'patches' && (
+        <div className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-[var(--color-cyan)] bg-[var(--color-cyan)]/10 border-b border-[var(--color-cyan)]/30 flex items-center gap-3">
+          <Crosshair className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">
+            {room.lastHighlight?.name || 'Someone'} highlighted{' '}
+            <span className="font-semibold">{room.lastHighlight?.selector}</span>
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={proposeFromBanner}
+            className="px-2 py-0.5 rounded border border-[var(--color-cyan)]/50 hover:bg-[var(--color-cyan)]/20 transition shrink-0"
+          >
+            propose fix
+          </button>
+          <button onClick={dismissBanner} className="text-[var(--color-muted)] hover:text-[var(--color-text)] shrink-0">
+            <XIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
         <nav className="shrink-0 flex flex-row md:flex-col overflow-x-auto md:overflow-visible border-b md:border-b-0 md:border-r border-[var(--color-border)] md:w-28 md:py-2">
           {TABS.map((t) => (
@@ -154,6 +211,7 @@ export default function Panel({ roomId, displayName, room }) {
               selfName={displayName}
               voterCount={room.voterCount ?? peerCount}
               highlights={room.highlights}
+              focusTarget={focusRequest}
             />
           )}
           {tab === 'ai' && <AIChat metrics={metrics} />}

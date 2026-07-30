@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Wand2,
   Check,
@@ -26,6 +26,7 @@ export default function PatchControls({
   selfName,
   voterCount = 1,
   highlights = {},
+  focusTarget = null,
 }) {
   const [css, setCss] = useState('')
   const [js, setJs] = useState('')
@@ -38,6 +39,16 @@ export default function PatchControls({
   const [textColor, setTextColor] = useState('#E2E8F0')
   // Two-step confirmation before running a JS patch on every peer's page.
   const [confirmId, setConfirmId] = useState(null)
+
+  // Jumped here from the "someone just highlighted this" banner — open
+  // straight into the propose form with that element already targeted.
+  useEffect(() => {
+    if (!focusTarget?.selector) return
+    setTargetSelector(focusTarget.selector)
+    setManualSelector('')
+    setShowForm(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTarget?.key])
 
   // Require a majority of the room's *voters* — panel instances only.
   // Injected agents have no voting UI and can never approve anything, so
