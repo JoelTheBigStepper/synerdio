@@ -15,13 +15,29 @@
   console.log("%c[synerdio] loading trystero room=" + ROOM, "color:#00F0FF;font-weight:bold");
 
   var style = document.createElement("style");
-  style.textContent = ".synerdio-highlight{outline:1.5px solid #00F0FF!important;outline-offset:1px!important;background-color:rgba(0,240,255,.07)!important}.synerdio-cursor{position:fixed;width:14px;height:14px;border-radius:50%;border:1.5px solid #00F0FF;pointer-events:none;z-index:2147483646;transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}.synerdio-cursor::after{content:attr(data-name);position:absolute;top:16px;left:50%;transform:translateX(-50%);background:#0B0F19;color:#00F0FF;font:10px/1.2 ui-monospace,monospace;padding:1px 5px;white-space:nowrap;border:1px solid rgba(0,240,255,.35)}#synerdio-badge{position:fixed;bottom:12px;right:12px;z-index:2147483647;background:#0B0F19;color:#E2E8F0;border:1px solid #1E293B;font:11px/1.3 ui-monospace,monospace;padding:6px 10px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.45)}#synerdio-badge .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B}#synerdio-badge .dot.on{background:#10B981;box-shadow:0 0 6px #10B981}#synerdio-badge .dot.err{background:#EF4444;box-shadow:0 0 6px #EF4444}#synerdio-badge a{color:#00F0FF;text-decoration:none}";
+  style.textContent = ".synerdio-highlight{outline:1.5px solid #00F0FF!important;outline-offset:1px!important;background-color:rgba(0,240,255,.07)!important}.synerdio-cursor{position:fixed;width:14px;height:14px;border-radius:50%;border:1.5px solid #00F0FF;pointer-events:none;z-index:2147483646;transform:translate(-50%,-50%);transition:left .06s linear,top .06s linear}.synerdio-cursor::after{content:attr(data-name);position:absolute;top:16px;left:50%;transform:translateX(-50%);background:#0B0F19;color:#00F0FF;font:10px/1.2 ui-monospace,monospace;padding:1px 5px;white-space:nowrap;border:1px solid rgba(0,240,255,.35)}#synerdio-badge{position:fixed;bottom:12px;right:12px;z-index:2147483647;background:#0B0F19;color:#E2E8F0;border:1px solid #1E293B;font:11px/1.3 ui-monospace,monospace;padding:6px 10px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.45)}#synerdio-badge .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B}#synerdio-badge .dot.on{background:#10B981;box-shadow:0 0 6px #10B981}#synerdio-badge .dot.err{background:#EF4444;box-shadow:0 0 6px #EF4444}#synerdio-badge a{color:#00F0FF;text-decoration:none}#synerdio-badge button{background:none;border:none;color:#64748B;cursor:pointer;font:inherit;font-size:13px;line-height:1;padding:0 0 0 2px}#synerdio-badge button:hover{color:#EF4444}";
   document.documentElement.appendChild(style);
   var badge = document.createElement("div");
   badge.id = "synerdio-badge";
-  badge.innerHTML = '<span class="dot" id="synerdio-dot"></span><span>synerdio · ' + ROOM + '</span><a href="' + ORIGIN + '/?room=' + ROOM + '" target="_blank" rel="noopener">panel</a>';
+  badge.innerHTML = '<span class="dot" id="synerdio-dot"></span><span>synerdio · ' + ROOM + '</span><a href="' + ORIGIN + '/?room=' + ROOM + '" target="_blank" rel="noopener">panel</a><button type="button" id="synerdio-leave-btn" title="End this session">✕</button>';
   document.documentElement.appendChild(badge);
   var dot = badge.querySelector("#synerdio-dot");
+
+  // Wired up immediately (not inside start()) so the badge can be
+  // dismissed even if the agent never fully connects — e.g. Trystero
+  // failed to load, or it's still negotiating.
+  badge.querySelector("#synerdio-leave-btn").addEventListener("click", function (e) {
+    e.preventDefault();
+    clearTimeout(readyTimeout);
+    if (typeof window.__synerdioLeave === "function") {
+      window.__synerdioLeave();
+    } else {
+      try { badge.remove(); } catch (_) {}
+      try { style.remove(); } catch (_) {}
+      window.__synerdioAgent = false;
+      console.log("[synerdio] left (was not fully connected)");
+    }
+  });
 
   function start(joinRoom) {
     var room;
