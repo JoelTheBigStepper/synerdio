@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { MessageSquare, Send, Sparkles } from 'lucide-react'
+import { MessageSquare, Send, Sparkles, WifiOff } from 'lucide-react'
 
 /**
- * Lightweight AI pair panel.
- * Uses a heuristic / offline fallback so the demo works without WebGPU models.
- * When WebLLM is available it can be wired in later.
+ * AI pair panel. Calls the server-proxied Claude endpoint (/api/ai-chat)
+ * for real answers grounded in the live metrics. If that's unreachable —
+ * API key not configured, rate limited, network hiccup — it quietly falls
+ * back to local keyword heuristics rather than showing an error, with a
+ * small "(offline)" tag so it's clear which one actually answered.
  */
 export default function AIChat({ metrics }) {
   const [messages, setMessages] = useState([
@@ -21,7 +23,9 @@ export default function AIChat({ metrics }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const reply = (userText) => {
+  // Offline fallback — only used if the real AI request fails for any
+  // reason, so the chat still says *something* useful.
+  const heuristicReply = (userText) => {
     const m = metrics || {}
     const lower = userText.toLowerCase()
 
@@ -60,18 +64,44 @@ export default function AIChat({ metrics }) {
     return `I can help with: long tasks / jank, TTFB & network, memory, and temporary patches. Current page sample: ${m.url ? new URL(m.url).hostname : 'unknown'}.`
   }
 
-  const handleSend = (e) => {
+  const fetchAIReply = async (message, history) => {
+    const res = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        metrics,
+        history: history.slice(-6).map((m) => ({ role: m.role, text: m.text })),
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.message || `AI request failed (${res.status})`)
+    }
+    const data = await res.json()
+    if (!data.reply) throw new Error('Empty AI response')
+    return data.reply
+  }
+
+  const handleSend = async (e) => {
     e.preventDefault()
     if (!input.trim() || busy) return
     const text = input.trim()
     setInput('')
-    setMessages((m) => [...m, { role: 'user', text }])
+    const nextMessages = [...messages, { role: 'user', text }]
+    setMessages(nextMessages)
     setBusy(true)
-    // Simulate thinking
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: 'assistant', text: reply(text) }])
+
+    try {
+      const aiText = await fetchAIReply(text, nextMessages)
+      setMessages((m) => [...m, { role: 'assistant', text: aiText, source: 'ai' }])
+    } catch (err) {
+      console.warn('[synerdio] AI chat falling back to offline heuristics:', err.message)
+      const fallbackText = heuristicReply(text)
+      setMessages((m) => [...m, { role: 'assistant', text: fallbackText, source: 'heuristic' }])
+    } finally {
       setBusy(false)
-    }, 400 + Math.random() * 600)
+    }
   }
 
   return (
@@ -80,7 +110,7 @@ export default function AIChat({ metrics }) {
         <MessageSquare className="w-4 h-4 text-cyan" />
         AI Pair
         <span className="text-xs font-normal text-slate ml-2 flex items-center gap-1">
-          <Sparkles className="w-3 h-3" /> offline heuristics · WebLLM ready
+          <Sparkles className="w-3 h-3" /> Groq-powered · falls back to offline heuristics
         </span>
       </h3>
 
@@ -98,6 +128,12 @@ export default function AIChat({ metrics }) {
               }`}
             >
               {msg.text}
+              {msg.source === 'heuristic' && (
+                <span className="flex items-center gap-1 mt-1.5 text-[10px] text-amber">
+                  <WifiOff className="w-2.5 h-2.5" />
+                  offline — AI service unavailable
+                </span>
+              )}
             </div>
           </div>
         ))}
