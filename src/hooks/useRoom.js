@@ -156,7 +156,13 @@ export function useRoom(roomId, displayName, active) {
 
     getMetrics((data) => {
       if (cancelled || !data) return
-      setMetrics(data)
+      setMetrics((prev) => {
+        // A panel peer's own local metrics (about the Synerdio app itself)
+        // should never overwrite real metrics about the target page that
+        // an agent already reported.
+        if (data.source === 'panel' && prev?.source === 'agent') return prev
+        return data
+      })
     })
 
     getPatchReq((data, peerId) => {

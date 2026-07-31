@@ -52,12 +52,18 @@ export default function Panel({ roomId, displayName, room }) {
             }
           : null,
         longTasks: [],
+        // Tagged so peers' getMetrics handler can tell this apart from
+        // real agent-sourced metrics about the target page, and never let
+        // it overwrite those.
+        source: 'panel',
       }
       setLocalMetrics(data)
+      room.broadcastMetrics?.(data)
     }
     collect()
     const id = setInterval(collect, 5000)
     return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Ticks so the highlight banner's age-based expiry re-evaluates even if
