@@ -136,6 +136,10 @@
       var resources = performance.getEntriesByType("resource").slice(-20);
       return {
         ts: Date.now(), url: location.href,
+        // Distinguishes "real metrics about the target page" (this) from
+        // a panel viewer's own local fallback numbers, so the panel can
+        // give this priority and never let it get silently overwritten.
+        source: "agent",
         timing: nav ? { ttfb: Math.round(nav.responseStart - nav.requestStart),
           domContentLoaded: Math.round(nav.domContentLoadedEventEnd - nav.startTime),
           load: Math.round(nav.loadEventEnd - nav.startTime) } : null,
